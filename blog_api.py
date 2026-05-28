@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# --- Загрузка переменных окружения ---
 FTP_HOST = os.environ.get('FTP_HOST')
 FTP_USER = os.environ.get('FTP_USER')
 FTP_PASS = os.environ.get('FTP_PASS')
@@ -22,12 +21,10 @@ def health():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    # --- Проверка авторизации ---
     token = request.headers.get('X-Auth-Token')
     if not SECRET_TOKEN or token != SECRET_TOKEN:
         return jsonify({"status": "error", "message": "Invalid token"}), 403
 
-    # --- Получение данных из запроса ---
     data = request.get_json()
     if not data:
         return jsonify({"status": "error", "message": "No JSON data"}), 400
@@ -37,26 +34,28 @@ def upload_file():
     if not filename or not content:
         return jsonify({"status": "error", "message": "Missing filename or content"}), 400
 
-    # --- Загрузка файла на FTP (ИСПРАВЛЕННАЯ ЧАСТЬ)---
+    # Конвертируем содержимое в байты UTF-8
+    try:
+        content_bytes = content.encode('utf-8')
+    except Exception as e:
+        logger.error(f"Encoding error: {e}")
+        return jsonify({"status": "error", "message": "Invalid UTF-8 content"}), 400
+
     try:
         with ftplib.FTP(FTP_HOST, FTP_USER, FTP_PASS) as ftp:
             ftp.set_pasv(True)
-
-            # Пытаемся перейти в нужную папку
+            # Переход в папку (логируем путь)
+            logger.info(f"Changing to directory: {FTP_PATH}")
             try:
                 ftp.cwd(FTP_PATH)
             except Exception as e:
                 logger.error(f"Failed to change directory: {e}")
                 return jsonify({"status": "error", "message": f"Failed to change directory: {str(e)}"}), 500
-
-            # Преобразуем строку с содержимым файла в поток байтов в памяти
-            # Это самый надёжный способ для `storbinary`.
-            with io.BytesIO(content.encode('utf-8')) as binary_stream:
-                ftp.storbinary(f'STOR {filename}', binary_stream)
-
-        logger.info(f"Successfully uploaded {filename} to {FTP_PATH}")
+            # Отправляем файл
+            with io.BytesIO(content_bytes) as stream:
+                ftp.storbinary(f'STOR {filename}', stream)
+        logger.info(f"Uploaded {filename} to {FTP_PATH}")
         return jsonify({"status": "ok", "message": f"File {filename} uploaded"}), 200
-
     except Exception as e:
         logger.error(f"FTP error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
