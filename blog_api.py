@@ -8,18 +8,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Чтение переменных окружения
 FTP_HOST = os.environ.get('FTP_HOST')
 FTP_USER = os.environ.get('FTP_USER')
 FTP_PASS = os.environ.get('FTP_PASS')
 FTP_PATH = os.environ.get('FTP_PATH')
 SECRET_TOKEN = os.environ.get('SECRET_TOKEN')
 
-logger.info("Starting app...")
-logger.info(f"FTP_HOST set: {bool(FTP_HOST)}")
-logger.info(f"FTP_USER set: {bool(FTP_USER)}")
-logger.info(f"FTP_PASS set: {bool(FTP_PASS)}")
-logger.info(f"FTP_PATH set: {bool(FTP_PATH)}")
-logger.info(f"SECRET_TOKEN set: {bool(SECRET_TOKEN)}")
+logger.info("Starting API...")
+logger.info(f"FTP_HOST: {FTP_HOST}")
+logger.info(f"FTP_USER: {FTP_USER}")
+logger.info(f"FTP_PATH: {FTP_PATH}")
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -27,10 +26,13 @@ def health():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    # Проверка токена
     token = request.headers.get('X-Auth-Token')
     if not SECRET_TOKEN or token != SECRET_TOKEN:
+        logger.warning("Invalid token")
         return jsonify({"status": "error", "message": "Invalid token"}), 403
 
+    # Получение JSON данных
     data = request.get_json()
     if not data:
         return jsonify({"status": "error", "message": "No JSON data"}), 400
@@ -41,12 +43,15 @@ def upload_file():
         return jsonify({"status": "error", "message": "Missing filename or content"}), 400
 
     try:
+        # Подключение к FTP и загрузка
         with ftplib.FTP(FTP_HOST, FTP_USER, FTP_PASS) as ftp:
             ftp.set_pasv(True)
+            # Переход в нужную папку
             ftp.cwd(FTP_PATH)
+            # Отправка файла: content - это строка, кодируем в байты
             ftp.storbinary(f'STOR {filename}', content.encode('utf-8'))
-        logger.info(f"Uploaded {filename}")
-        return jsonify({"status": "ok", "message": f"File {filename} uploaded"})
+        logger.info(f"File uploaded: {filename}")
+        return jsonify({"status": "ok", "message": f"File {filename} uploaded"}), 200
     except Exception as e:
         logger.error(f"FTP error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
